@@ -54,15 +54,18 @@ jobs:
             # Login to GHCR
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u luatius --password-stdin
 
-            # Pull and start MongoDB
+            # Pull and start services
             export MONGO_USER=${{ secrets.MONGO_USER }}
             export MONGO_PASSWORD=${{ secrets.MONGO_PASSWORD }}
+            export JUPYTER_PASSWORD=${{ secrets.JUPYTER_PASSWORD }}
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d mongodb
 
-            # Pull and start scraper
-            docker compose -f docker-compose.prod.yml pull
+            # Start scraper
             docker compose -f docker-compose.prod.yml up -d scraper
+
+            # Start Jupyter notebook
+            docker compose -f docker-compose.prod.yml up -d jupyter
 
             # Show running containers
             docker ps

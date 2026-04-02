@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   mongodb:
     image: mongo:latest
@@ -25,6 +23,25 @@ services:
       - bigdata-network
     profiles:
       - scraper
+
+  jupyter:
+    image: jupyter/scipy-notebook:latest
+    container_name: bigdata-jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_PASSWORD}
+      MONGO_HOST: mongodb
+      MONGO_USER: ${MONGO_USER:-admin}
+      MONGO_PASSWORD: ${MONGO_PASSWORD:-secret}
+    volumes:
+      - ./notebooks:/home/jovyan/notebooks
+      - ./src:/home/jovyan/src
+      - ./scripts:/home/jovyan/scripts
+    networks:
+      - bigdata-network
+    depends_on:
+      - mongodb
 
 volumes:
   mongodb_data:
