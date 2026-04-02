@@ -1,0 +1,75 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+.venv/
+pip-log.txt
+.ipynb_checkpoints/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Java / Scala
+*.class
+*.jar
+*.war
+*.log
+target/
+project/target/
+project/project/
+
+# Spark
+metastore_db/
+derby.log
+spark-warehouse/
+
+# Hadoop
+*.crc
+
+# Data files (adjust as needed)
+*.csv
+*.parquet
+*.avro
+*.orc
+data/
+output/
+
+# Logs
+logs/
+*.log
+
+# Secrets / Credentials
+*.pem
+*.key
+credentials.json
+secrets.yaml
+.env.local
+.env.*.local
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Misc
+*.tmp
+*.temp
+*.bak
