@@ -73,3 +73,4 @@ secrets.yaml
 *.tmp
 *.temp
 *.bak
+CLAUDE.md

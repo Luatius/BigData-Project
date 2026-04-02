@@ -1,0 +1,64 @@
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/luatius/bigdata-scraper
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push scraper image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/scraper/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_NAME }}:latest
+
+      - name: Deploy to Azure VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AZURE_HOST }}
+          username: ${{ secrets.AZURE_USER }}
+          password: ${{ secrets.AZURE_PASSWORD }}
+          script: |
+            mkdir -p /home/azureuser/bigdata-project
+            cd /home/azureuser/bigdata-project
+
+            # Pull repo (or clone if first time)
+            if [ -d .git ]; then
+              git pull origin main
+            else
+              git clone https://github.com/Luatius/BigData-Project.git .
+            fi
+
+            # Login to GHCR
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u luatius --password-stdin
+
+            # Pull and start MongoDB
+            export MONGO_USER=${{ secrets.MONGO_USER }}
+            export MONGO_PASSWORD=${{ secrets.MONGO_PASSWORD }}
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d mongodb
+
+            # Show running containers
+            docker ps

@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: bigdata-mongodb-prod
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongodb_prod_data:/data/db
+    networks:
+      - bigdata-network
+
+  scraper:
+    image: ghcr.io/luatius/bigdata-scraper:latest
+    container_name: bigdata-scraper-prod
+    depends_on:
+      - mongodb
+    networks:
+      - bigdata-network
+    profiles:
+      - scraper
+
+volumes:
+  mongodb_prod_data:
+
+networks:
+  bigdata-network:
