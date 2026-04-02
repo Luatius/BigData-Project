@@ -9,7 +9,7 @@ services:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
     volumes:
-      - mongodb_prod_data:/data/db
+      - ./data/mongodb:/data/db
     networks:
       - bigdata-network
 
@@ -35,7 +35,7 @@ services:
       MONGO_USER: ${MONGO_USER}
       MONGO_PASSWORD: ${MONGO_PASSWORD}
     volumes:
-      - jupyter_notebooks:/home/jovyan/notebooks
+      - .:/home/jovyan/work
     networks:
       - bigdata-network
     depends_on:
@@ -44,23 +44,20 @@ services:
   mongo-express:
     image: mongo-express:latest
     container_name: bigdata-mongo-express-prod
-    restart: always
+    restart: unless-stopped
     ports:
       - "8081:8081"
     environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
       ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_USER}
       ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_PASSWORD}
-      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
       ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_EXPRESS_USER}
       ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASSWORD}
     networks:
       - bigdata-network
     depends_on:
       - mongodb
-
-volumes:
-  mongodb_prod_data:
-  jupyter_notebooks:
 
 networks:
   bigdata-network:

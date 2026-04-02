@@ -54,6 +54,9 @@ jobs:
             # Login to GHCR
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u luatius --password-stdin
 
+            # Create data directory for MongoDB
+            mkdir -p /home/azureuser/bigdata-project/data/mongodb
+
             # Pull and start services
             export MONGO_USER=${{ secrets.MONGO_USER }}
             export MONGO_PASSWORD=${{ secrets.MONGO_PASSWORD }}
