@@ -60,5 +60,9 @@ jobs:
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d mongodb
 
+            # Pull and start scraper
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d scraper
+
             # Show running containers
             docker ps
