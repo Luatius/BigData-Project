@@ -63,7 +63,7 @@ jobs:
             export JUPYTER_PASSWORD=${{ secrets.JUPYTER_PASSWORD }}
             export MONGO_EXPRESS_USER=${{ secrets.MONGO_EXPRESS_USER }}
             export MONGO_EXPRESS_PASSWORD=${{ secrets.MONGO_EXPRESS_PASSWORD }}
-            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml --profile scraper pull
             docker compose -f docker-compose.prod.yml up -d mongodb
 
             # Remove old scraper container and start fresh with new image
