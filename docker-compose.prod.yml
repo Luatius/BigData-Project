@@ -16,6 +16,10 @@ services:
   scraper:
     image: ghcr.io/luatius/bigdata-scraper:latest
     container_name: bigdata-scraper-prod
+    environment:
+      MONGO_HOST: mongodb
+      MONGO_USER: ${MONGO_USER}
+      MONGO_PASSWORD: ${MONGO_PASSWORD}
     depends_on:
       - mongodb
     networks:
