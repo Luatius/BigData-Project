@@ -66,8 +66,8 @@ jobs:
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d mongodb
 
-            # Start scraper
-            docker compose -f docker-compose.prod.yml up -d scraper
+            # Start scraper (needs --profile since it's under a profile)
+            docker compose -f docker-compose.prod.yml --profile scraper up -d scraper
 
             # Start Jupyter notebook
             docker compose -f docker-compose.prod.yml up -d jupyter
@@ -75,5 +75,9 @@ jobs:
             # Start Mongo Express (web UI)
             docker compose -f docker-compose.prod.yml up -d mongo-express
 
+            # Wait for scraper to finish and show its logs
+            sleep 120
+            docker logs bigdata-scraper-prod 2>&1 || true
+
             # Show running containers
-            docker ps
+            docker ps -a
