@@ -10,4 +10,4 @@ COPY scripts/ ./scripts/
 
 ENV PYTHONPATH=/app
 
-CMD ["python", "scripts/run_scraper.py"]
+CMD ["sh", "-c", "python scripts/run_scraper.py && python scripts/fetch_ubahn_stations.py"]
