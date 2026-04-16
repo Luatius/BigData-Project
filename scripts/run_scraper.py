@@ -11,7 +11,8 @@ import time
 
 import requests
 from bs4 import BeautifulSoup
-from pymongo import MongoClient
+from pymongo import ASCENDING, MongoClient
+from pymongo.errors import DuplicateKeyError
 from datetime import datetime, timezone
 
 
@@ -24,8 +25,8 @@ HEADERS = {
     ),
     "Accept-Language": "de-AT,de;q=0.9,en;q=0.8",
 }
-MAX_PAGES = 40
-REQUEST_DELAY = 2  # seconds between requests
+MAX_PAGES = 1000
+REQUEST_DELAY = 5  # seconds between requests
 
 
 def connect_mongo():
@@ -103,7 +104,11 @@ def parse_ad(ad):
         except (ValueError, IndexError):
             pass
 
-    willhaben_id = str(ad.get("id", ""))
+    willhaben_id = str(ad.get("id", "")).strip()
+
+    # Without a stable ID we can't deduplicate — skip entirely.
+    if not willhaben_id:
+        return None
 
     if not price and not location:
         return None
@@ -186,6 +191,50 @@ def extract_district(location, postcode):
     return None
 
 
+def dedupe_existing(collection):
+    """Collapse any pre-existing duplicates on willhaben_id so the unique
+    index can be built. Keeps the most recently scraped document per ID.
+    """
+    pipeline = [
+        {"$match": {"willhaben_id": {"$ne": None, "$ne": ""}}},
+        {"$sort": {"scraped_at": -1}},
+        {
+            "$group": {
+                "_id": "$willhaben_id",
+                "keep": {"$first": "$_id"},
+                "all": {"$push": "$_id"},
+            }
+        },
+        {"$match": {"$expr": {"$gt": [{"$size": "$all"}, 1]}}},
+    ]
+    removed = 0
+    for group in collection.aggregate(pipeline, allowDiskUse=True):
+        to_delete = [oid for oid in group["all"] if oid != group["keep"]]
+        if to_delete:
+            removed += collection.delete_many({"_id": {"$in": to_delete}}).deleted_count
+
+    # Drop any legacy rows without a willhaben_id — they can't be deduplicated.
+    removed += collection.delete_many(
+        {"$or": [{"willhaben_id": {"$exists": False}}, {"willhaben_id": ""}]}
+    ).deleted_count
+    return removed
+
+
+def ensure_indexes(collection):
+    """Create indexes before any writes. The unique index on willhaben_id is
+    the hard guarantee against duplicates.
+    """
+    removed = dedupe_existing(collection)
+    if removed:
+        print(f"Dedup: {removed} Altbestand-Duplikate entfernt.")
+
+    collection.create_index(
+        [("willhaben_id", ASCENDING)], unique=True, name="willhaben_id_unique"
+    )
+    collection.create_index([("geo", "2dsphere")])
+    collection.create_index("district")
+
+
 def scrape_page(page_num):
     """Scrape a single page of Willhaben search results."""
     params = {"page": page_num, "rows": 25}
@@ -201,8 +250,11 @@ def main():
     print(f"Scraping up to {MAX_PAGES} pages...\n")
 
     collection = connect_mongo()
+    ensure_indexes(collection)
+
     total_new = 0
     total_updated = 0
+    total_duplicates_skipped = 0
 
     for page in range(1, MAX_PAGES + 1):
         print(f"Seite {page}/{MAX_PAGES}...", end=" ")
@@ -217,11 +269,18 @@ def main():
             break
 
         for listing in listings:
-            result = collection.update_one(
-                {"willhaben_id": listing["willhaben_id"]},
-                {"$set": listing},
-                upsert=True,
-            )
+            try:
+                result = collection.update_one(
+                    {"willhaben_id": listing["willhaben_id"]},
+                    {"$set": listing},
+                    upsert=True,
+                )
+            except DuplicateKeyError:
+                # Race with a concurrent writer that inserted the same ID
+                # between our match and upsert — unique index blocked it.
+                total_duplicates_skipped += 1
+                continue
+
             if result.upserted_id:
                 total_new += 1
             elif result.modified_count > 0:
@@ -233,11 +292,9 @@ def main():
             time.sleep(REQUEST_DELAY)
 
     print(f"\nFertig! {total_new} neue, {total_updated} aktualisierte Inserate.")
+    if total_duplicates_skipped:
+        print(f"{total_duplicates_skipped} Duplikat-Kollisionen abgefangen.")
     print(f"Gesamt in DB: {collection.count_documents({})}")
-
-    # Create geospatial index for proximity queries
-    collection.create_index([("geo", "2dsphere")])
-    collection.create_index("district")
 
 
 if __name__ == "__main__":
