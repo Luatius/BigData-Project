@@ -30,7 +30,7 @@ REQUEST_DELAY = 5  # seconds between requests
 
 
 def connect_mongo():
-    """Connect to MongoDB and return the collection."""
+    """Connect to MongoDB and return the database handle."""
     host = os.environ.get("MONGO_HOST", "localhost")
     port = int(os.environ.get("MONGO_PORT", 27017))
     user = os.environ.get("MONGO_USER", "admin")
@@ -43,8 +43,39 @@ def connect_mongo():
         password=password,
         authSource="admin",
     )
-    db = client["bigdata"]
-    return db["willhaben_mietwohnungen"]
+    return client["bigdata"]
+
+
+def start_run(runs, max_pages):
+    """Insert a new run document and return its _id."""
+    now = datetime.now(timezone.utc)
+    doc = {
+        "status": "running",
+        "started_at": now,
+        "last_update": now,
+        "finished_at": None,
+        "max_pages": max_pages,
+        "current_page": 0,
+        "pages_completed": 0,
+        "total_new": 0,
+        "total_updated": 0,
+        "total_duplicates_skipped": 0,
+        "error": None,
+    }
+    return runs.insert_one(doc).inserted_id
+
+
+def update_run(runs, run_id, **fields):
+    """Patch the running run document with the given fields + last_update."""
+    fields["last_update"] = datetime.now(timezone.utc)
+    runs.update_one({"_id": run_id}, {"$set": fields})
+
+
+def finish_run(runs, run_id, status, **fields):
+    """Mark the run as completed/failed."""
+    now = datetime.now(timezone.utc)
+    fields.update({"status": status, "finished_at": now, "last_update": now})
+    runs.update_one({"_id": run_id}, {"$set": fields})
 
 
 def extract_listings_from_next_data(soup):
@@ -246,55 +277,96 @@ def scrape_page(page_num):
 
 
 def main():
-    print("=== Willhaben Mietwohnungen Scraper - Wien ===")
-    print(f"Scraping up to {MAX_PAGES} pages...\n")
+    print("=== Willhaben Mietwohnungen Scraper - Wien ===", flush=True)
+    print(f"Scraping up to {MAX_PAGES} pages...\n", flush=True)
 
-    collection = connect_mongo()
+    db = connect_mongo()
+    collection = db["willhaben_mietwohnungen"]
+    runs = db["scraper_runs"]
     ensure_indexes(collection)
 
+    run_id = start_run(runs, MAX_PAGES)
     total_new = 0
     total_updated = 0
     total_duplicates_skipped = 0
+    pages_completed = 0
+    stopped_early = False
 
-    for page in range(1, MAX_PAGES + 1):
-        print(f"Seite {page}/{MAX_PAGES}...", end=" ")
-        try:
-            listings = scrape_page(page)
-        except requests.RequestException as e:
-            print(f"Fehler: {e}")
-            continue
-
-        if not listings:
-            print("Keine Inserate gefunden, Abbruch.")
-            break
-
-        for listing in listings:
+    try:
+        for page in range(1, MAX_PAGES + 1):
+            print(f"Seite {page}/{MAX_PAGES}...", end=" ", flush=True)
             try:
-                result = collection.update_one(
-                    {"willhaben_id": listing["willhaben_id"]},
-                    {"$set": listing},
-                    upsert=True,
-                )
-            except DuplicateKeyError:
-                # Race with a concurrent writer that inserted the same ID
-                # between our match and upsert — unique index blocked it.
-                total_duplicates_skipped += 1
+                listings = scrape_page(page)
+            except requests.RequestException as e:
+                print(f"Fehler: {e}", flush=True)
+                update_run(runs, run_id, current_page=page, error=str(e))
                 continue
 
-            if result.upserted_id:
-                total_new += 1
-            elif result.modified_count > 0:
-                total_updated += 1
+            if not listings:
+                print("Keine Inserate gefunden, Abbruch.", flush=True)
+                stopped_early = True
+                break
 
-        print(f"{len(listings)} Inserate verarbeitet.")
+            for listing in listings:
+                try:
+                    result = collection.update_one(
+                        {"willhaben_id": listing["willhaben_id"]},
+                        {"$set": listing},
+                        upsert=True,
+                    )
+                except DuplicateKeyError:
+                    # Race with a concurrent writer that inserted the same ID
+                    # between our match and upsert — unique index blocked it.
+                    total_duplicates_skipped += 1
+                    continue
 
-        if page < MAX_PAGES:
-            time.sleep(REQUEST_DELAY)
+                if result.upserted_id:
+                    total_new += 1
+                elif result.modified_count > 0:
+                    total_updated += 1
 
-    print(f"\nFertig! {total_new} neue, {total_updated} aktualisierte Inserate.")
+            pages_completed = page
+            print(f"{len(listings)} Inserate verarbeitet.", flush=True)
+            update_run(
+                runs,
+                run_id,
+                current_page=page,
+                pages_completed=pages_completed,
+                total_new=total_new,
+                total_updated=total_updated,
+                total_duplicates_skipped=total_duplicates_skipped,
+            )
+
+            if page < MAX_PAGES:
+                time.sleep(REQUEST_DELAY)
+    except Exception as e:
+        finish_run(
+            runs,
+            run_id,
+            status="failed",
+            pages_completed=pages_completed,
+            total_new=total_new,
+            total_updated=total_updated,
+            total_duplicates_skipped=total_duplicates_skipped,
+            error=repr(e),
+        )
+        raise
+
+    finish_run(
+        runs,
+        run_id,
+        status="completed",
+        pages_completed=pages_completed,
+        stopped_early=stopped_early,
+        total_new=total_new,
+        total_updated=total_updated,
+        total_duplicates_skipped=total_duplicates_skipped,
+    )
+
+    print(f"\nFertig! {total_new} neue, {total_updated} aktualisierte Inserate.", flush=True)
     if total_duplicates_skipped:
-        print(f"{total_duplicates_skipped} Duplikat-Kollisionen abgefangen.")
-    print(f"Gesamt in DB: {collection.count_documents({})}")
+        print(f"{total_duplicates_skipped} Duplikat-Kollisionen abgefangen.", flush=True)
+    print(f"Gesamt in DB: {collection.count_documents({})}", flush=True)
 
 
 if __name__ == "__main__":
